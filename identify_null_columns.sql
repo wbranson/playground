@@ -2,6 +2,7 @@ DECLARE @SchemaName NVARCHAR(MAX) = 'YourSchemaName' -- Replace with your schema
 DECLARE @TableName NVARCHAR(MAX)
 DECLARE @ColumnName NVARCHAR(MAX)
 DECLARE @SQL NVARCHAR(MAX)
+DECLARE @HasDateLoadStartId BIT
 
 -- Temporary table to store all columns and their null-check status
 CREATE TABLE #NullColumns (
@@ -27,23 +28,50 @@ WHERE
 
 -- Cursor to iterate through each column in the #NullColumns table
 DECLARE column_cursor CURSOR FOR
-SELECT SchemaName, TableName, ColumnName FROM #NullColumns
+SELECT DISTINCT SchemaName, TableName, ColumnName FROM #NullColumns
 
 OPEN column_cursor
 FETCH NEXT FROM column_cursor INTO @SchemaName, @TableName, @ColumnName
 
 WHILE @@FETCH_STATUS = 0
 BEGIN
-    -- Build dynamic SQL to check if a column is NULL for all records
-    SET @SQL = 'IF NOT EXISTS (SELECT 1 FROM ' + QUOTENAME(@SchemaName) + '.' + QUOTENAME(@TableName) +
-               ' WHERE ' + QUOTENAME(@ColumnName) + ' IS NOT NULL) ' +
-               'UPDATE #NullColumns ' +
-               'SET IsNull = 1 ' +
-               'WHERE SchemaName = ''' + @SchemaName + ''' AND TableName = ''' + @TableName + ''' AND ColumnName = ''' + @ColumnName + ''''
-    
+    -- Check if the table has a DateLoadStartId column
+    SET @HasDateLoadStartId = 0
+    IF EXISTS (
+        SELECT 1 
+        FROM INFORMATION_SCHEMA.COLUMNS 
+        WHERE TABLE_SCHEMA = @SchemaName 
+          AND TABLE_NAME = @TableName 
+          AND COLUMN_NAME = 'DateLoadStartId'
+    )
+    BEGIN
+        SET @HasDateLoadStartId = 1
+    END
+
+    -- Build dynamic SQL based on whether DateLoadStartId exists
+    IF @HasDateLoadStartId = 1
+    BEGIN
+        -- Null check considering the max DateLoadStartId
+        SET @SQL = 'IF NOT EXISTS (SELECT 1 FROM ' + QUOTENAME(@SchemaName) + '.' + QUOTENAME(@TableName) +
+                   ' WHERE ' + QUOTENAME(@ColumnName) + ' IS NOT NULL AND DateLoadStartId = (SELECT MAX(DateLoadStartId) FROM ' +
+                   QUOTENAME(@SchemaName) + '.' + QUOTENAME(@TableName) + ')) ' +
+                   'UPDATE #NullColumns ' +
+                   'SET IsNull = 1 ' +
+                   'WHERE SchemaName = ''' + @SchemaName + ''' AND TableName = ''' + @TableName + ''' AND ColumnName = ''' + @ColumnName + ''''
+    END
+    ELSE
+    BEGIN
+        -- Null check across all rows
+        SET @SQL = 'IF NOT EXISTS (SELECT 1 FROM ' + QUOTENAME(@SchemaName) + '.' + QUOTENAME(@TableName) +
+                   ' WHERE ' + QUOTENAME(@ColumnName) + ' IS NOT NULL) ' +
+                   'UPDATE #NullColumns ' +
+                   'SET IsNull = 1 ' +
+                   'WHERE SchemaName = ''' + @SchemaName + ''' AND TableName = ''' + @TableName + ''' AND ColumnName = ''' + @ColumnName + ''''
+    END
+
     -- Execute the dynamic SQL
     EXEC sp_executesql @SQL
-    
+
     FETCH NEXT FROM column_cursor INTO @SchemaName, @TableName, @ColumnName
 END
 
