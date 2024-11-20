@@ -5,6 +5,7 @@ DECLARE @SQL NVARCHAR(MAX)
 
 -- Temporary table to store the results
 CREATE TABLE #NullColumns (
+    SchemaName NVARCHAR(MAX),
     TableName NVARCHAR(MAX),
     ColumnName NVARCHAR(MAX)
 )
@@ -12,6 +13,7 @@ CREATE TABLE #NullColumns (
 -- Cursor to iterate through all tables and columns in the specified schema
 DECLARE column_cursor CURSOR FOR
 SELECT 
+    c.TABLE_SCHEMA,
     t.TABLE_NAME,
     c.COLUMN_NAME
 FROM 
@@ -23,20 +25,20 @@ WHERE
     AND c.TABLE_SCHEMA = @SchemaName -- Filter by schema name
 
 OPEN column_cursor
-FETCH NEXT FROM column_cursor INTO @TableName, @ColumnName
+FETCH NEXT FROM column_cursor INTO @SchemaName, @TableName, @ColumnName
 
 WHILE @@FETCH_STATUS = 0
 BEGIN
     -- Build dynamic SQL to check if a column is NULL for all records
     SET @SQL = 'IF NOT EXISTS (SELECT 1 FROM ' + QUOTENAME(@SchemaName) + '.' + QUOTENAME(@TableName) +
                ' WHERE ' + QUOTENAME(@ColumnName) + ' IS NOT NULL) ' +
-               'INSERT INTO #NullColumns (TableName, ColumnName) VALUES (''' +
-               @TableName + ''', ''' + @ColumnName + ''')'
+               'INSERT INTO #NullColumns (SchemaName, TableName, ColumnName) VALUES (''' +
+               @SchemaName + ''', ''' + @TableName + ''', ''' + @ColumnName + ''')'
                
     -- Execute the dynamic SQL
     EXEC sp_executesql @SQL
     
-    FETCH NEXT FROM column_cursor INTO @TableName, @ColumnName
+    FETCH NEXT FROM column_cursor INTO @SchemaName, @TableName, @ColumnName
 END
 
 CLOSE column_cursor
