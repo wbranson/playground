@@ -1,3 +1,4 @@
+DECLARE @SchemaName NVARCHAR(MAX) = 'YourSchemaName' -- Replace with your schema name
 DECLARE @TableName NVARCHAR(MAX)
 DECLARE @ColumnName NVARCHAR(MAX)
 DECLARE @SQL NVARCHAR(MAX)
@@ -8,7 +9,7 @@ CREATE TABLE #NullColumns (
     ColumnName NVARCHAR(MAX)
 )
 
--- Cursor to iterate through all tables and columns in the database
+-- Cursor to iterate through all tables and columns in the specified schema
 DECLARE column_cursor CURSOR FOR
 SELECT 
     t.TABLE_NAME,
@@ -16,9 +17,10 @@ SELECT
 FROM 
     INFORMATION_SCHEMA.COLUMNS c
 JOIN 
-    INFORMATION_SCHEMA.TABLES t ON c.TABLE_NAME = t.TABLE_NAME
+    INFORMATION_SCHEMA.TABLES t ON c.TABLE_NAME = t.TABLE_NAME AND c.TABLE_SCHEMA = t.TABLE_SCHEMA
 WHERE 
     t.TABLE_TYPE = 'BASE TABLE'
+    AND c.TABLE_SCHEMA = @SchemaName -- Filter by schema name
 
 OPEN column_cursor
 FETCH NEXT FROM column_cursor INTO @TableName, @ColumnName
@@ -26,7 +28,7 @@ FETCH NEXT FROM column_cursor INTO @TableName, @ColumnName
 WHILE @@FETCH_STATUS = 0
 BEGIN
     -- Build dynamic SQL to check if a column is NULL for all records
-    SET @SQL = 'IF NOT EXISTS (SELECT 1 FROM ' + QUOTENAME(@TableName) +
+    SET @SQL = 'IF NOT EXISTS (SELECT 1 FROM ' + QUOTENAME(@SchemaName) + '.' + QUOTENAME(@TableName) +
                ' WHERE ' + QUOTENAME(@ColumnName) + ' IS NOT NULL) ' +
                'INSERT INTO #NullColumns (TableName, ColumnName) VALUES (''' +
                @TableName + ''', ''' + @ColumnName + ''')'
